@@ -7,7 +7,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
+  --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -127,4 +127,17 @@
   html {
     @apply font-sans;
   }
+}
+
+/* PlaceAutocompleteElement (Places API New) */
+gmp-place-autocomplete {
+  width: 100%;
+  --gmp-input-border-radius: 9999px;
+  --gmp-input-border-color: #e4e4e7;
+  --gmp-input-background-color: #ffffff;
+  --gmp-input-placeholder-color: #a1a1aa;
+  --gmp-input-color: #18181b;
+  --gmp-input-font-size: 1rem;
+  --gmp-input-font-family: inherit;
+  --gmp-input-padding: 0 3rem 0 1.25rem;
 }

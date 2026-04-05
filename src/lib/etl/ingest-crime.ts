@@ -51,37 +51,56 @@ export async function ingestCrimeRates(): Promise<IngestResult> {
 
     const rows: CrimeRateRow[] = [];
 
+    const YEARS = [2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025];
+
     for await (const batch of paginateCKAN(resource.id)) {
       for (const r of batch) {
-        const neighbourhood = field(r, "AREA_NAME", "Neighbourhood");
-        const neighbourhood_id = field(r, "AREA_ID", "Hood_ID", "HOOD_ID");
-        const yearRaw = field(r, "REPORT_YEAR", "Year");
+        const neighbourhood = field(r, "AREA_NAME");
+        const neighbourhood_id = field(r, "HOOD_ID");
 
-        // Both neighbourhood_id and year are required for the unique constraint
-        if (!neighbourhood_id || !yearRaw) {
+        if (!neighbourhood_id) {
           skipped++;
           continue;
         }
 
-        const year = parseInt(yearRaw, 10);
-        if (isNaN(year)) {
-          skipped++;
-          continue;
-        }
+        const geom = null;
+        const ingested_at = new Date().toISOString();
 
-        rows.push({
-          neighbourhood,
-          neighbourhood_id,
-          year,
-          assault_rate: numericField(r, "ASSAULT_RAT", "Assault_Rate"),
-          auto_theft_rate: numericField(r, "AUTOTHEFT_R", "AutoTheft_Rate", "Auto_Theft_Rate"),
-          break_enter_rate: numericField(r, "BREAKENTER_", "BreakEnter_Rate", "Break_Enter_Rate"),
-          robbery_rate: numericField(r, "ROBBERY_RAT", "Robbery_Rate"),
-          shooting_rate: numericField(r, "SHOOTING_RA", "Shootings_Rate", "Shooting_Rate"),
-          homicide_rate: numericField(r, "HOMICIDE_RA", "Homicide_Rate"),
-          geom: parseGeom(r),
-          ingested_at: new Date().toISOString(),
-        });
+        for (const year of YEARS) {
+          const assault_rate = numericField(r, `ASSAULT_RATE_${year}`);
+          const auto_theft_rate = numericField(r, `AUTOTHEFT_RATE_${year}`);
+          const break_enter_rate = numericField(r, `BREAKENTER_RATE_${year}`);
+          const robbery_rate = numericField(r, `ROBBERY_RATE_${year}`);
+          const shooting_rate = numericField(r, `SHOOTING_RATE_${year}`);
+          const homicide_rate = numericField(r, `HOMICIDE_RATE_${year}`);
+
+          // Skip years where all rate fields are null (sparse data)
+          if (
+            assault_rate === null &&
+            auto_theft_rate === null &&
+            break_enter_rate === null &&
+            robbery_rate === null &&
+            shooting_rate === null &&
+            homicide_rate === null
+          ) {
+            skipped++;
+            continue;
+          }
+
+          rows.push({
+            neighbourhood,
+            neighbourhood_id,
+            year,
+            assault_rate,
+            auto_theft_rate,
+            break_enter_rate,
+            robbery_rate,
+            shooting_rate,
+            homicide_rate,
+            geom,
+            ingested_at,
+          });
+        }
       }
     }
 
@@ -205,3 +224,6 @@ function ringListToWkt(rings: number[][][]): string {
     .map((ring) => `(${ring.map((c) => `${c[0]} ${c[1]}`).join(",")})`)
     .join(",");
 }
+
+/** Alias for ingestCrimeRates — used by the historical-load script. */
+export const ingestCrime = ingestCrimeRates;

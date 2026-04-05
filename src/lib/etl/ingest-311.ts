@@ -67,8 +67,12 @@ export async function ingest311(
 
   if (!csvResources.length) throw new Error("No CSV/ZIP 311 resources found");
 
-  // Full load: all resources; incremental: only the most recent
-  const targets = options.fullLoad ? csvResources : [csvResources[0]];
+  // Full load: restrict to 2023-onwards to avoid downloading older annual ZIPs.
+  // Incremental: only the most recent resource.
+  const RECENT_YEARS = ["2023", "2024", "2025", "2026"];
+  const targets = options.fullLoad
+    ? csvResources.filter((r) => RECENT_YEARS.some((y) => r.name.includes(y)))
+    : [csvResources[0]];
 
   let inserted = 0;
   let skipped = 0;
