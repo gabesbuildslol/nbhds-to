@@ -31,11 +31,6 @@ export default function Home() {
       {/* Hero */}
       <section
         className="relative pt-24 pb-16 flex flex-col items-center px-4"
-        style={{
-          backgroundImage:
-            "radial-gradient(circle, rgb(228 228 231) 1px, transparent 1px)",
-          backgroundSize: "24px 24px",
-        }}
       >
         <h1 className="font-sans font-semibold text-3xl tracking-tight text-center max-w-xl text-zinc-900 leading-tight">
           Know what&apos;s actually happening around any Toronto address
