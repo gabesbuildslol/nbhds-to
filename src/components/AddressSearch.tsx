@@ -10,30 +10,25 @@ interface AddressSearchProps {
 }
 
 export default function AddressSearch({ onResult, onLoading }: AddressSearchProps) {
-  const [inputValue, setInputValue] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [value, setValue] = useState("");
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!inputValue.trim()) return;
-
+  async function submitAddress(address: string) {
+    if (!address.trim()) return;
     setError(null);
     setLoading(true);
     onLoading(true);
-
     try {
       const res = await fetch(
-        `/api/neighbourhood?address=${encodeURIComponent(inputValue)}&radius=500`
+        `/api/neighbourhood?address=${encodeURIComponent(address)}&radius=500`
       );
-
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { error?: string }).error ?? `Request failed (${res.status})`);
       }
-
-      const data: NeighbourhoodResponse = await res.json();
-      onResult(data);
+      const result: NeighbourhoodResponse = await res.json();
+      onResult(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     } finally {
@@ -42,15 +37,21 @@ export default function AddressSearch({ onResult, onLoading }: AddressSearchProp
     }
   }
 
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    await submitAddress(value);
+  }
+
   return (
     <form onSubmit={handleSubmit} className="w-full">
       <div className="relative w-full">
         <input
           type="text"
-          value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
           placeholder="Enter an address..."
           disabled={loading}
+          autoComplete="off"
           className="
             h-12 w-full rounded-full border border-zinc-200 bg-white
             pl-5 pr-12 text-sm text-zinc-900 outline-none
@@ -58,9 +59,10 @@ export default function AddressSearch({ onResult, onLoading }: AddressSearchProp
             disabled:cursor-not-allowed disabled:opacity-50
           "
         />
+
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || !value.trim()}
           className="
             absolute right-1.5 top-1/2 -translate-y-1/2
             flex items-center justify-center
