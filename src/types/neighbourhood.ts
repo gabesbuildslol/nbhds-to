@@ -31,6 +31,8 @@ export interface ServiceRequestSummary {
   total: number;
   by_category: ServiceRequestCategory[];
   recent: RecentServiceRequest[];
+  /** % change in request count: last 12 months vs prior 12 months */
+  trend_pct: number | null;
 }
 
 // ── Building permits ───────────────────────────────────────────────────────
@@ -48,6 +50,8 @@ export interface BuildingPermitSummary {
   total_count: number;
   active_count: number;
   recent: RecentPermit[];
+  /** % change in active permit count: this calendar year vs last calendar year */
+  trend_pct: number | null;
 }
 
 // ── DineSafe ───────────────────────────────────────────────────────────────
@@ -67,6 +71,8 @@ export interface DineSafeSummary {
   /** null when there are no establishments in the radius */
   pass_rate: number | null;
   recent_inspections: RecentInspection[];
+  /** percentage-point change in pass rate: last 12 months vs prior 12 months */
+  pass_rate_trend_pp: number | null;
 }
 
 // ── Crime ──────────────────────────────────────────────────────────────────
@@ -82,6 +88,8 @@ export interface CrimeSummary {
   neighbourhood: string;
   year: number;
   rates: CrimeRates;
+  /** % change in assault rate: current year vs prior year */
+  assault_trend_pct: number | null;
 }
 
 // ── Top-level response ─────────────────────────────────────────────────────

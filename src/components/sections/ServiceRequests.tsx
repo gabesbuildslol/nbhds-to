@@ -6,10 +6,13 @@ import type {
   ServiceRequestStatus,
 } from "@/types/neighbourhood";
 
+const CITY_AVG_311 = 45; // ~45 requests per 500m radius per 90 days
+
 interface Props {
   data: ServiceRequestSummary;
   isPaid: boolean;
   onUpgrade: () => void;
+  label?: string;
 }
 
 function relativeDate(isoString: string): string {
@@ -90,21 +93,43 @@ function RecentRequestRow({ req }: { req: RecentServiceRequest }) {
   );
 }
 
-export function ServiceRequests({ data, isPaid, onUpgrade }: Props) {
+function TrendIndicator({ pct }: { pct: number }) {
+  const arrow = pct > 0 ? "↑" : "↓";
+  return (
+    <span className="text-xs text-zinc-400">
+      {arrow} {Math.abs(pct)}% vs last year
+    </span>
+  );
+}
+
+export function ServiceRequests({ data, isPaid, onUpgrade, label }: Props) {
   const maxCount = data.by_category.reduce(
     (acc, cat) => Math.max(acc, cat.count),
     0
   );
   const recent = data.recent.slice(0, 5);
+  const vsAvg = data.total - CITY_AVG_311;
 
   return (
     <div>
       <h2 className="text-xs font-semibold uppercase tracking-widest text-zinc-400">
         Service requests
       </h2>
-      <p className="text-sm text-zinc-500 mt-1">
-        {data.total} reports in the last 90 days
-      </p>
+      {label && (
+        <p className="text-sm text-zinc-400 mt-1 italic">{label}</p>
+      )}
+      <div className="flex items-baseline gap-3 mt-1 flex-wrap">
+        <p className="text-sm text-zinc-500">
+          {data.total} reports in the last 90 days
+        </p>
+        <span className="text-xs text-zinc-400">
+          city avg ~{CITY_AVG_311}
+          {vsAvg !== 0 && (
+            <> · {vsAvg > 0 ? "+" : ""}{vsAvg} vs avg</>
+          )}
+        </span>
+        {data.trend_pct !== null && <TrendIndicator pct={data.trend_pct} />}
+      </div>
 
       <div className="mt-4 space-y-6">
         {data.by_category.length > 0 && (

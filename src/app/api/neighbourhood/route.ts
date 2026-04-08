@@ -54,10 +54,15 @@ interface NeighbourhoodCentroid {
 // Module-level caches — persist for the lifetime of the server process
 let _centroids: NeighbourhoodCentroid[] | null = null;
 
-// Most-recent crime row keyed by neighbourhood_id, fetched once from Supabase
-let _crimeRates: Map<string, Record<string, unknown>> | null = null;
+interface CrimeYearPair {
+  current: Record<string, unknown>;
+  prior: Record<string, unknown> | null;
+}
 
-async function getCrimeRatesCache(): Promise<Map<string, Record<string, unknown>> | null> {
+// Two most-recent crime rows per neighbourhood keyed by neighbourhood_id
+let _crimeRates: Map<string, CrimeYearPair> | null = null;
+
+async function getCrimeRatesCache(): Promise<Map<string, CrimeYearPair> | null> {
   if (_crimeRates) return _crimeRates;
 
   const { data, error } = await supabase
@@ -72,13 +77,18 @@ async function getCrimeRatesCache(): Promise<Map<string, Record<string, unknown>
     return null;
   }
 
-  // Group by neighbourhood_id — because rows are ordered year desc, the first
-  // row for each id is already the most recent year.
-  const map = new Map<string, Record<string, unknown>>();
+  // Group by neighbourhood_id — rows are ordered year desc, so we capture
+  // the current (most recent) and prior (second-most-recent) year for each.
+  const map = new Map<string, CrimeYearPair>();
   for (const row of data) {
     const id = row.neighbourhood_id as string;
     if (!map.has(id)) {
-      map.set(id, row as Record<string, unknown>);
+      map.set(id, { current: row as Record<string, unknown>, prior: null });
+    } else {
+      const entry = map.get(id)!;
+      if (entry.prior === null) {
+        entry.prior = row as Record<string, unknown>;
+      }
     }
   }
 
@@ -145,7 +155,7 @@ function polygonCentroid(rawGeom: unknown): { lat: number; lng: number } | null 
   }
 }
 
-/** Find the nearest Toronto neighbourhood and return its most recent crime data.
+/** Find the nearest Toronto neighbourhood and return its two most recent crime rows.
  *
  * Both the CKAN neighbourhood centroids and the Supabase crime_rates rows are
  * cached in module scope so this is a pure in-memory lookup after the first
@@ -154,7 +164,7 @@ function polygonCentroid(rawGeom: unknown): { lat: number; lng: number } | null 
 async function fetchCrimeForPoint(
   lat: number,
   lng: number
-): Promise<Record<string, unknown> | null> {
+): Promise<CrimeYearPair | null> {
   const [centroids, crimeRates] = await Promise.all([
     getNeighbourhoodCentroids(),
     getCrimeRatesCache(),
@@ -213,8 +223,12 @@ export async function GET(request: NextRequest) {
     Date.now() - DINESAFE_LOOKBACK_DAYS * 86400000
   ).toISOString();
 
+  // YoY 311 trend: a second lightweight query covering the past 24 months so we
+  // can split into current-12m vs prior-12m buckets in JS without extra queries.
+  const since24m = new Date(Date.now() - 730 * 86400000).toISOString();
+
   // Run spatial queries in parallel
-  const [requestsRes, permitsRes, dinesafeRes, crimeData] = await Promise.all([
+  const [requestsRes, permitsRes, dinesafeRes, crimeData, requestsYoyRes] = await Promise.all([
     supabase.rpc("get_service_requests_near", {
       p_lat: lat,
       p_lng: lng,
@@ -235,6 +249,13 @@ export async function GET(request: NextRequest) {
     // get_crime_for_point uses polygon intersection which fails when geom is null.
     // Instead, fetch centroids from the CKAN source and find the nearest neighbourhood.
     fetchCrimeForPoint(lat, lng),
+    // Extra 24-month window for YoY 311 trend calculation only
+    supabase.rpc("get_service_requests_near", {
+      p_lat: lat,
+      p_lng: lng,
+      p_radius_m: radius,
+      p_since: since24m,
+    }),
   ]);
 
   // Log any DB errors but don't fail the request — return partial data
@@ -242,6 +263,7 @@ export async function GET(request: NextRequest) {
     ["service_requests", requestsRes],
     ["permits", permitsRes],
     ["dinesafe", dinesafeRes],
+    ["service_requests_yoy", requestsYoyRes],
   ] as const) {
     if (res.error) console.error(`[api/neighbourhood] ${name} error:`, res.error);
   }
@@ -256,7 +278,7 @@ export async function GET(request: NextRequest) {
       radius_m: radius,
       window,
       is_paid: isPaid,
-      service_requests: formatServiceRequests(requestsRes.data ?? []),
+      service_requests: formatServiceRequests(requestsRes.data ?? [], requestsYoyRes.data ?? []),
       building_permits: formatPermits(permitsRes.data ?? []),
       dinesafe: formatDineSafe(dinesafeRes.data ?? []),
       crime: formatCrime(crimeData),
@@ -272,7 +294,7 @@ export async function GET(request: NextRequest) {
 
 // ── Formatting helpers ─────────────────────────────────────────────────────
 
-function formatServiceRequests(rows: any[]) {
+function formatServiceRequests(rows: any[], yoyRows: any[]) {
   // Aggregate by category
   const byCat: Record<string, number> = {};
   for (const r of rows) {
@@ -287,6 +309,12 @@ function formatServiceRequests(rows: any[]) {
     }))
     .sort((a, b) => b.count - a.count);
 
+  // YoY trend: split 24-month window into current vs prior 12 months
+  const cutoff12m = Date.now() - 365 * 86400000;
+  const current12m = yoyRows.filter((r) => new Date(r.created_at).getTime() >= cutoff12m).length;
+  const prior12m = yoyRows.length - current12m;
+  const trend_pct = prior12m > 0 ? Math.round(((current12m - prior12m) / prior12m) * 100) : null;
+
   return {
     total: rows.length,
     by_category: byCategory,
@@ -300,13 +328,29 @@ function formatServiceRequests(rows: any[]) {
       ward: r.ward,
       distance_m: Math.round(r.distance_m),
     })),
+    trend_pct,
   };
 }
 
 function formatPermits(rows: any[]) {
-  const active = rows.filter((r) =>
-    ["open", "issued", "pending"].includes(r.status?.toLowerCase())
-  );
+  const ACTIVE_STATUSES = ["open", "issued", "pending"];
+  const active = rows.filter((r) => ACTIVE_STATUSES.includes(r.status?.toLowerCase()));
+
+  // YoY trend: active permits issued this calendar year vs last calendar year
+  const thisYear = new Date().getFullYear();
+  const lastYear = thisYear - 1;
+  const activeThisYear = active.filter((r) => {
+    const y = r.issued_date ? new Date(r.issued_date).getFullYear() : null;
+    return y === thisYear;
+  }).length;
+  const activeLastYear = active.filter((r) => {
+    const y = r.issued_date ? new Date(r.issued_date).getFullYear() : null;
+    return y === lastYear;
+  }).length;
+  const trend_pct =
+    activeLastYear > 0
+      ? Math.round(((activeThisYear - activeLastYear) / activeLastYear) * 100)
+      : null;
 
   return {
     total_count: rows.length,
@@ -319,32 +363,55 @@ function formatPermits(rows: any[]) {
       address: r.address,
       distance_m: Math.round(r.distance_m),
     })),
+    trend_pct,
   };
 }
 
-function formatDineSafe(rows: any[]) {
+function dedupeEstablishments(rows: any[]): any[] {
   const establishments = new Map<string, any>();
-
-  // Deduplicate by establishment — keep most recent inspection per place
   for (const r of rows) {
-    const key = r.source_id;
-    if (!establishments.has(key)) {
-      establishments.set(key, r);
-    }
+    if (!establishments.has(r.source_id)) establishments.set(r.source_id, r);
   }
+  return [...establishments.values()];
+}
 
-  const all = [...establishments.values()];
+function computePassRate(dedupedRows: any[]): number | null {
+  if (dedupedRows.length === 0) return null;
+  const failed = dedupedRows.filter((r) =>
+    ["conditional pass", "closed"].includes(r.result?.toLowerCase())
+  );
+  return Math.round(((dedupedRows.length - failed.length) / dedupedRows.length) * 100);
+}
+
+function formatDineSafe(rows: any[]) {
+  const all = dedupeEstablishments(rows);
   const failed = all.filter((r) =>
     ["conditional pass", "closed"].includes(r.result?.toLowerCase())
   );
 
+  // YoY pass-rate trend using the 3-year data already fetched
+  const cutoff12m = Date.now() - 365 * 86400000;
+  const cutoff24m = Date.now() - 730 * 86400000;
+  const current12mRows = dedupeEstablishments(
+    rows.filter((r) => new Date(r.inspection_date).getTime() >= cutoff12m)
+  );
+  const prior12mRows = dedupeEstablishments(
+    rows.filter((r) => {
+      const t = new Date(r.inspection_date).getTime();
+      return t >= cutoff24m && t < cutoff12m;
+    })
+  );
+  const currentRate = computePassRate(current12mRows);
+  const priorRate = computePassRate(prior12mRows);
+  const pass_rate_trend_pp =
+    currentRate !== null && priorRate !== null
+      ? Math.round(currentRate - priorRate)
+      : null;
+
   return {
     total_establishments: all.length,
     failed_last_90d: failed.length,
-    pass_rate:
-      all.length > 0
-        ? Math.round(((all.length - failed.length) / all.length) * 100)
-        : null,
+    pass_rate: all.length > 0 ? Math.round(((all.length - failed.length) / all.length) * 100) : null,
     recent_inspections: rows.slice(0, 10).map((r) => ({
       establishment: r.establishment,
       estab_type: r.estab_type,
@@ -353,20 +420,31 @@ function formatDineSafe(rows: any[]) {
       severity: r.severity,
       distance_m: Math.round(r.distance_m),
     })),
+    pass_rate_trend_pp,
   };
 }
 
-function formatCrime(row: Record<string, unknown> | null) {
-  if (!row) return null;
+function formatCrime(pair: CrimeYearPair | null) {
+  if (!pair) return null;
+  const { current, prior } = pair;
+
+  const currentAssault = typeof current.assault_rate === "number" ? current.assault_rate : null;
+  const priorAssault = prior && typeof prior.assault_rate === "number" ? prior.assault_rate : null;
+  const assault_trend_pct =
+    currentAssault !== null && priorAssault !== null && priorAssault > 0
+      ? Math.round(((currentAssault - priorAssault) / priorAssault) * 100)
+      : null;
+
   return {
-    neighbourhood: row.neighbourhood,
-    year: row.year,
+    neighbourhood: current.neighbourhood,
+    year: current.year,
     rates: {
-      assault: row.assault_rate,
-      auto_theft: row.auto_theft_rate,
-      break_enter: row.break_enter_rate,
-      robbery: row.robbery_rate,
+      assault: current.assault_rate,
+      auto_theft: current.auto_theft_rate,
+      break_enter: current.break_enter_rate,
+      robbery: current.robbery_rate,
     },
+    assault_trend_pct,
   };
 }
 

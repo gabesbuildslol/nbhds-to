@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "historical-load": "dotenv -e .env.local tsx scripts/historical-load.ts"
+    "historical-load": "dotenv -e .env.local tsx scripts/historical-load.ts",
+    "backfill-categories": "dotenv -e .env.local tsx scripts/backfill-categories.ts"
   },
   "dependencies": {
     "@googlemaps/js-api-loader": "^2.0.2",

@@ -60,16 +60,31 @@ function PermitRow({ permit }: { permit: RecentPermit }) {
   );
 }
 
+const CITY_AVG_PERMITS = 8; // ~8 active permits per 500m radius
+
 interface BuildingPermitsProps {
   data: BuildingPermitSummary;
+  label?: string;
 }
 
-export function BuildingPermits({ data }: BuildingPermitsProps) {
+function TrendIndicator({ pct }: { pct: number }) {
+  const arrow = pct > 0 ? "↑" : "↓";
+  return (
+    <span className="text-xs text-zinc-400">
+      {arrow} {Math.abs(pct)}% vs last year
+    </span>
+  );
+}
+
+export function BuildingPermits({ data, label }: BuildingPermitsProps) {
   return (
     <div>
       <h2 className="text-xs font-semibold uppercase tracking-widest text-zinc-400">
         Building permits
       </h2>
+      {label && (
+        <p className="text-sm text-zinc-400 mt-1 italic">{label}</p>
+      )}
       <div className="mt-4">
         {data.total_count === 0 ? (
           <p className="text-sm text-zinc-400 italic">
@@ -79,12 +94,16 @@ export function BuildingPermits({ data }: BuildingPermitsProps) {
           <>
             <div>
               {data.active_count > 0 ? (
-                <p className="text-2xl font-semibold text-zinc-800">
-                  {data.active_count}{" "}
-                  <span className="text-base font-normal text-zinc-500">
-                    active permit{data.active_count !== 1 ? "s" : ""} within 500m
-                  </span>
-                </p>
+                <div className="flex items-baseline gap-3 flex-wrap">
+                  <p className="text-2xl font-semibold text-zinc-800">
+                    {data.active_count}{" "}
+                    <span className="text-base font-normal text-zinc-500">
+                      active permit{data.active_count !== 1 ? "s" : ""} within 500m
+                    </span>
+                  </p>
+                  <span className="text-xs text-zinc-400">city avg ~{CITY_AVG_PERMITS}</span>
+                  {data.trend_pct !== null && <TrendIndicator pct={data.trend_pct} />}
+                </div>
               ) : (
                 <p className="text-sm text-zinc-400 italic">No active permits nearby</p>
               )}

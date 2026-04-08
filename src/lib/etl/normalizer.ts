@@ -57,25 +57,39 @@ const RULES: CategoryRule[] = [
   },
   {
     pattern:
-      /traffic\s*signal|streetlight|street\s*light|lamp\s*out|sign\s*missing|sign\s*damage|sign\s*fallen/i,
+      /traffic\s*signal|traffic\s+control\s+signal|signal\s*timing|traffic\s*calm|streetlight|street\s*light|lamp\s*out|sign\s*missing|sign\s*damage|sign\s*fallen/i,
     category: "roads",
   },
   {
     pattern: /snow\s*removal|ice\s*control|salting|winter\s*maintenance/i,
     category: "roads",
   },
+  {
+    pattern:
+      /road\s*plow|road\s*plough|road\s*-\s*clean|road\s*-\s*sink|road\s*-\s*damage|clean\s*up\s*debris|maintenance\s*holes?|sink\s*hole|roadway\s*utility\s*cut|bus\s*stops?\s*snow|snow\s*at\s*intersection|school\s*zone\s*snow|storm\s*clean\s*up|intersection\s*safety|expressway|pxo\s*maintenance|pedestrian\s*crossover|walkway.*damage|laneway.*damage/i,
+    category: "roads",
+  },
+  {
+    pattern: /outcome\s*of\s*service.*road|complaint.*outcome|complaint.*time\s*line/i,
+    category: "roads",
+  },
+  {
+    pattern:
+      /missing.*sign|damaged.*sign|street.*sign|traffic\s*sign|investigate.*sign|temporary.*sign|^signs$/i,
+    category: "roads",
+  },
 
   // ── Noise (before bylaw — noise is a subset of MLS but warrants its own bucket)
   {
     pattern:
-      /noise\s*complaint|noise\s*by-?law|loud\s*music|loud\s*party|barking\s*dog|construction\s*noise|noisy/i,
+      /noise\s*complaint|noise\s*by-?law|loud\s*music|loud\s*party|barking\s*dog|construction\s*noise|noisy|motor\s*vehicle\s*noise|moving.*noise|amplified\s*sound|unreasonable.*noise/i,
     category: "noise",
   },
 
   // ── Trees & forestry
   {
     pattern:
-      /tree\s*removal|tree\s*inspection|fallen\s*tree|dead\s*tree|damaged\s*tree|tree\s*pruning|tree\s*trim|hazardous\s*tree|tree\s*branch|stump|forestry/i,
+      /tree\s*removal|tree\s*inspection|fallen\s*tree|dead\s*tree|damaged\s*tree|tree\s*pruning|tree\s*trim|hazardous\s*tree|tree\s*branch|stump|forestry|general\s*pruning|tree\s*emergency|boulevards.*grass|grass\s*cutting/i,
     category: "trees",
   },
 
@@ -94,7 +108,7 @@ const RULES: CategoryRule[] = [
   // ── Parks & recreation
   {
     pattern:
-      /park\s*maintenance|playground|park\s*equipment|trail\s*maintenance|splash\s*pad|park\s*bench|park\s*facility|arena|ice\s*surface|wading\s*pool/i,
+      /park\s*maintenance|park\s*use|playground|park\s*equipment|trail\s*maintenance|splash\s*pad|park\s*bench|park\s*facility|arena|ice\s*surface|wading\s*pool|boulevards.*weed|weed\s*removal/i,
     category: "parks",
   },
 
@@ -120,7 +134,69 @@ const RULES: CategoryRule[] = [
       /licensing|rooming\s*house|body\s*rub|refreshment\s*vehicle|food\s*truck|mobile\s*sign/i,
     category: "bylaw",
   },
+  {
+    pattern:
+      /staff\s*service.*comp(laint|liment)|public\s*spaces|complaint.*contractor|contractor\s*complaint|encroachment|crossing\s*guard|dogs?\s*off\s*leash|illegal.*parking|postering|election\s*signs?|comment.*suggestion/i,
+    category: "bylaw",
+  },
 ];
+
+/**
+ * Exact-string overrides (case-insensitive key lookup).
+ * Checked before regex rules — use for high-volume strings that resist
+ * pattern matching, or to explicitly pin noisy/unknown types to "other".
+ */
+const EXACT_MATCHES: Record<string, ServiceCategory> = {
+  "road plowing request":                              "roads",
+  "road - cleaning/debris":                            "roads",
+  "clean up debris on road":                           "roads",
+  "missing/damaged signs":                             "roads",
+  "missing / damaged street or traffic signs":         "roads",
+  "road - sinking":                                    "roads",
+  "maintenance hole-damage":                           "roads",
+  "expressway requires cleaning.":                     "roads",
+  "expressway requires cleaning":                      "roads",
+  "pxo maintenance":                                   "roads",
+  "street furniture request":                          "roads",
+  "amplified sound":                                   "noise",
+  "moving motor vehicle noise":                        "noise",
+  "park use":                                          "parks",
+  "election signs":                                    "bylaw",
+  "complaint - crossing guard conduct":                "bylaw",
+  "staff service - complaint - 311 toronto":           "bylaw",
+  "staff service compliment":                          "bylaw",
+  // Parks
+  "dog off-leash in a city park":                      "parks",
+  "parks ravine safety mtc fnem":                      "parks",
+  "park garbage bin overflowing":                      "parks",
+  "park lighting maintenance":                         "parks",
+  "park conduct":                                      "parks",
+  "park litter and garbage":                           "parks",
+  "illegal dumping in park":                           "parks",
+  "park property snow and ice clearing":               "parks",
+  "park pathways and trails maintenance":              "parks",
+
+  // Waste (park-specific overflow bins)
+  "garbage / park / bin overflow":                     "waste",
+  "recycle / park / bin overflow":                     "waste",
+
+  // Bylaw — parking
+  "illegal off-street parking":                        "bylaw",
+  "illegal on-street parking":                         "bylaw",
+  "general parking regulations":                       "bylaw",
+  "blocked access by parking":                         "bylaw",
+  "time limit or excessive duration parking":          "bylaw",
+  "corner parking prohibition":                        "bylaw",
+  "parking in a public lane":                          "bylaw",
+
+  // Trees
+  "residential or park tree removal":                  "trees",
+
+  // Explicit no-ops
+  "unknown - mlsblemmvn":                              "other",
+  "unknown - ts-stfurn-req":                           "other",
+  "unknown - tso-cmp04":                               "other",
+};
 
 /**
  * Normalize a raw 311 request type string to a ServiceCategory.
@@ -128,6 +204,8 @@ const RULES: CategoryRule[] = [
  */
 export function normalizeCategory(rawType: string): ServiceCategory {
   if (!rawType) return "other";
+  const exact = EXACT_MATCHES[rawType.toLowerCase().trim()];
+  if (exact) return exact;
   for (const { pattern, category } of RULES) {
     if (pattern.test(rawType)) return category;
   }

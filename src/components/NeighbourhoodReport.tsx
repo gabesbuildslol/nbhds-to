@@ -1,17 +1,43 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { ServiceRequests } from "@/components/sections/ServiceRequests";
 import { BuildingPermits } from "@/components/sections/BuildingPermits";
 import { DineSafe } from "@/components/sections/DineSafe";
 import Crime from "@/components/sections/Crime";
 import type { NeighbourhoodResponse } from "@/types/neighbourhood";
+import type { SummaryResponse } from "@/app/api/summary/route";
 
 interface Props {
   data: NeighbourhoodResponse;
   onUpgrade: () => void;
 }
 
+function SummarySkeleton() {
+  return (
+    <div className="h-4 w-3/4 rounded bg-zinc-100 animate-pulse" />
+  );
+}
+
 export function NeighbourhoodReport({ data, onUpgrade }: Props) {
+  const [summary, setSummary] = useState<SummaryResponse | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(true);
+
+  useEffect(() => {
+    setSummaryLoading(true);
+    setSummary(null);
+
+    fetch("/api/summary", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json: SummaryResponse | null) => setSummary(json))
+      .catch(() => setSummary(null))
+      .finally(() => setSummaryLoading(false));
+  }, [data]);
+
   return (
     <div className="max-w-2xl mx-auto pt-8">
       <div className="flex items-baseline gap-3 pb-6 border-b border-zinc-100">
@@ -24,22 +50,41 @@ export function NeighbourhoodReport({ data, onUpgrade }: Props) {
         )}
       </div>
 
+      {/* AI summary paragraph */}
+      <div className="py-5 border-b border-zinc-100">
+        {summaryLoading ? (
+          <SummarySkeleton />
+        ) : summary?.summary ? (
+          <p className="text-sm text-zinc-500 leading-relaxed">{summary.summary}</p>
+        ) : null}
+      </div>
+
       <div className="flex flex-col gap-0">
         <div className="py-8 border-b border-zinc-100">
           <ServiceRequests
             data={data.service_requests}
             isPaid={data.is_paid}
             onUpgrade={onUpgrade}
+            label={summary?.serviceRequestsLabel}
           />
         </div>
         <div className="py-8 border-b border-zinc-100">
-          <BuildingPermits data={data.building_permits} />
+          <BuildingPermits
+            data={data.building_permits}
+            label={summary?.permitsLabel}
+          />
         </div>
         <div className="py-8 border-b border-zinc-100">
-          <DineSafe data={data.dinesafe} />
+          <DineSafe
+            data={data.dinesafe}
+            label={summary?.dineSafeLabel}
+          />
         </div>
         <div className="py-8">
-          <Crime data={data.crime} />
+          <Crime
+            data={data.crime}
+            label={summary?.crimeLabel}
+          />
         </div>
       </div>
 

@@ -2,8 +2,11 @@
 
 import type { DineSafeSummary, DineSafeResult } from "@/types/neighbourhood";
 
+const CITY_AVG_DINESAFE_PASS_RATE = 87; // ~87% pass rate city-wide
+
 interface Props {
   data: DineSafeSummary;
+  label?: string;
 }
 
 function passRateColor(rate: number): string {
@@ -46,12 +49,27 @@ function ResultBadge({ result }: { result: DineSafeResult }) {
   );
 }
 
-export function DineSafe({ data }: Props) {
+function TrendIndicator({ pp }: { pp: number }) {
+  const arrow = pp > 0 ? "↑" : "↓";
+  return (
+    <span className="text-xs text-zinc-400">
+      {arrow} {Math.abs(pp)}pp vs last year
+    </span>
+  );
+}
+
+export function DineSafe({ data, label }: Props) {
+  const vsAvg =
+    data.pass_rate !== null ? Math.round(data.pass_rate - CITY_AVG_DINESAFE_PASS_RATE) : null;
+
   return (
     <div>
       <h2 className="text-xs font-semibold uppercase tracking-widest text-zinc-400">
         Restaurant inspections
       </h2>
+      {label && (
+        <p className="text-sm text-zinc-400 mt-1 italic">{label}</p>
+      )}
 
       {data.total_establishments === 0 ? (
         <p className="mt-4 text-sm text-zinc-400 italic">
@@ -59,7 +77,7 @@ export function DineSafe({ data }: Props) {
         </p>
       ) : (
         <div className="mt-4 space-y-4">
-          <div className="flex gap-8">
+          <div className="flex gap-8 items-end flex-wrap">
             <div>
               <span
                 className={`text-2xl font-semibold ${
@@ -79,6 +97,14 @@ export function DineSafe({ data }: Props) {
               <p className="text-sm text-zinc-400">
                 establishments nearby
               </p>
+            </div>
+            <div className="flex flex-col gap-0.5 pb-0.5">
+              <span className="text-xs text-zinc-400">city avg ~{CITY_AVG_DINESAFE_PASS_RATE}%{vsAvg !== null && vsAvg !== 0 && (
+                <> · {vsAvg > 0 ? "+" : ""}{vsAvg}pp vs avg</>
+              )}</span>
+              {data.pass_rate_trend_pp !== null && (
+                <TrendIndicator pp={data.pass_rate_trend_pp} />
+              )}
             </div>
           </div>
 
